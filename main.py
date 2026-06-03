@@ -8,14 +8,16 @@ import nbtlib
 from amulet.api.chunk import Chunk
 
 origin = amulet.load_level('C:\\Users\\hojit\\workspace\\mc1.21.11\\saves\\Biome World')
-level = amulet.load_level('C:\\Users\\hojit\\workspace\\mc1.21.11\\saves\\Jumbo Test')
+level = amulet.load_level('C:\\Users\\hojit\\workspace\\mc1.21.11\\saves\\Jumbo Test2')
 version = ('java', (1, 21, 11))
-dimension = 'minecraft:the_nether'
+dimension = 'minecraft:overworld'
+jmb_blocks = [f.split('.')[0] for f in os.listdir('./input/blocks')]
 
 
 def main():
     start = time.time()
-    baumkuchen((-86, 90, 540), 10, 2, off_y=-90)
+    #copy_biome((3388,75,8580), off_y=-75)
+    baumkuchen((18808, 80, 98115), 24, 80, off_y=-84)
     print('saving...')
     level.save()
     level.close()
@@ -27,8 +29,8 @@ def boring(begin: tuple[int, int, int], height: int, off_y: int=0):
     x, y, z = begin
     for i in range (height):
         loc = (x, y + i, z)
+        copy_biome(loc, off_y)
         block2jmb_block(loc, off_y)
-        copy_biome(loc)
     print(f'complete boring!(x:{x}, z:{z})')
 
 
@@ -44,9 +46,8 @@ def block2jmb_block(loc: tuple[int, int, int], off_y: int=0):
         return
 
     block_name = block.namespaced_name.split(':')[1]
-    jmb_blocks = [f.split('.')[0] for f in os.listdir('./input/blocks')]
     if block_name in jmb_blocks:
-        set_jmb_block((x * 16, (y + off_y) * 16, z * 16), f'./input/blocks/{block_name}.nbt')
+        set_jmb_block((x * 16, (y + off_y) * 16, z * 16), block_name)
 
 def baumkuchen(center: tuple[int, int, int], height: int, n_max: int, n1: int=1, off_y: int=0):
     cx, cy, cz = center
@@ -72,32 +73,55 @@ def baumkuchen(center: tuple[int, int, int], height: int, n_max: int, n1: int=1,
         else:
             loc += shift
 
+block_palette = {}
+jmb_palette = {}
 
-def set_jmb_block(loc: tuple[int, int, int], path):
+def set_jmb_block(loc: tuple[int, int, int], jmb_name: str):
     x, y, z = loc
-    st = nbtlib.load(path)
-    blocks = st['blocks']
-    palette = st['palette']
-    block_palette = {}
-    for block in blocks:
-        x1,y1,z1= block['pos']
-        state = block['state']
-        block_name = palette[state]['Name'].split(':')[1]
-        if block_name == 'barrier':
-            continue
 
-        if block_name in block_palette.keys():
-            new_block = block_palette[block_name]
-        else:
-            new_block = Block('minecraft', block_name)
-            block_palette[block_name] = new_block
+    if jmb_name in jmb_palette.keys():
+        block_lst = jmb_palette[jmb_name]
+        for block in block_lst:
+            x1,y1,z1 = block['pos']
+            new_block = block['block']
+            level.set_version_block(
+                x=x1 + x, y=y1 + y, z=z1 + z,
+                dimension=dimension,
+                version=version,
+                block=new_block
+            )
+    else:
+        st = nbtlib.load(f'./input/blocks/{jmb_name}.nbt')
+        blocks = st['blocks']
+        palette = st['palette']
 
-        level.set_version_block(
-            x=x1 + x, y=y1 + y, z=z1 + z,
-            dimension=dimension,
-            version=version,
-            block=new_block
-        )
+        block_lst = []
+        for block in blocks:
+            x1,y1,z1= block['pos']
+            state = block['state']
+            block_name = palette[state]['Name'].split(':')[1]
+            if block_name == 'barrier':
+                continue
+
+            if block_name in block_palette.keys():
+                new_block = block_palette[block_name]
+            else:
+                new_block = Block('minecraft', block_name)
+                block_palette[block_name] = new_block
+
+            level.set_version_block(
+                x=x1 + x, y=y1 + y, z=z1 + z,
+                dimension=dimension,
+                version=version,
+                block=new_block
+            )
+
+            block_lst.append({
+                    'pos': (x1, y1, z1),
+                    'block': new_block,
+                })
+
+        jmb_palette[jmb_name] = block_lst
 
 
 
@@ -105,12 +129,14 @@ def copy_biome(loc: tuple[int, int, int], off_y: int=0):
     x, y, z = loc
     if not level.has_chunk(x, z, dimension):
         chunk = Chunk(x, z)
+        chunk.status = 'full'
+        chunk.misc['dimension'] = dimension
         level.put_chunk(chunk, dimension)
     else:
         chunk = level.get_chunk(x, z, dimension)
 
     biomes = chunk.biomes
-    biome_id = level.biome_palette.get_add_biome(get_biome_at(loc))
+    biome_id = level.biome_palette.get_add_biome(get_biome_at(origin, loc))
 
     biomes.convert_to_3d()
     section = biomes.get_section(y + off_y)
@@ -120,19 +146,19 @@ def copy_biome(loc: tuple[int, int, int], off_y: int=0):
     chunk.changed = True
 
 
-def get_biome_at(loc: tuple[int, int, int]):
+def get_biome_at(lv, loc: tuple[int, int, int]):
     x, y, z = loc
     cx = x >> 4
     cz = z >> 4
     lx = x & 15
     lz = z & 15
 
-    chunk = origin.get_chunk(cx, cz, dimension)
+    chunk = lv.get_chunk(cx, cz, dimension)
     biomes = chunk.biomes
 
     biome_id = biomes[lx >> 2, y >> 2, lz >> 2]
 
-    return str(origin.biome_palette[biome_id])
+    return str(lv.biome_palette[biome_id])
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
